@@ -99,7 +99,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "estudiantes_db" {
   identifier           = "estudiantes-db"
   engine              = "postgres"
-  engine_version      = "15.3"
+  engine_version      = "17.6"
   instance_class      = "db.t3.micro"    # REQUERIDO para Free Tier
   
   # STORAGE para Free Tier
@@ -138,7 +138,7 @@ resource "aws_db_instance" "estudiantes_db" {
 
 # EC2 Instance
 resource "aws_instance" "app_server" {
-  ami                    = "ami-0030e4319cbf4dbf2"
+  ami                    = "ami-0dd9f0e7df0f0a138"
   instance_type          = "t2.micro"      # Free Tier
   key_name               = "estudiantes-key"
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
