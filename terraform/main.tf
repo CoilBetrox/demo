@@ -12,12 +12,12 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# VPC por defecto (para evitar crear una nueva)
+# 1. VPC por defecto
 data "aws_vpc" "default" {
   default = true
 }
 
-# Subnets por defecto
+# 2. Subnets por defecto
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"
@@ -25,7 +25,7 @@ data "aws_subnets" "default" {
   }
 }
 
-# Security Group para EC2
+# 3. Security Group para EC2
 resource "aws_security_group" "ec2_sg" {
   name        = "estudiantes-ec2-sg"
   description = "Security group para instancia EC2"
@@ -59,7 +59,7 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
-# Security Group para RDS
+# 4. Security Group para RDS
 resource "aws_security_group" "rds_sg" {
   name        = "estudiantes-rds-sg"
   description = "Security group para RDS PostgreSQL"
@@ -85,7 +85,7 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
-# DB Subnet Group
+# 5. DB Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "estudiantes-db-subnet-group"
   subnet_ids = data.aws_subnets.default.ids
@@ -95,55 +95,53 @@ resource "aws_db_subnet_group" "main" {
   }
 }
 
-# RDS PostgreSQL - CONFIGURACIÓN FREE TIER
+# 6. RDS PostgreSQL
 resource "aws_db_instance" "estudiantes_db" {
   identifier           = "estudiantes-db"
   engine              = "postgres"
-  engine_version      = "17.6"
-  instance_class      = "db.t3.micro"    # REQUERIDO para Free Tier
+  engine_version      = "15.6"
+  instance_class      = "db.t3.micro"
+  allocated_storage   = 20
+  storage_type        = "gp2"
+  storage_encrypted   = false
   
-  # STORAGE para Free Tier
-  allocated_storage   = 20               # Máximo para Free Tier
-  storage_type        = "gp2"            # gp3 no está en Free Tier
-  storage_encrypted   = false            # Encryption no está en Free Tier
-  
-  # CREDENCIALES
   db_name             = "estudiantesdb"
   username            = "estudiantesadmin"
   password            = "6xleyU2b209S"
   
-  # NETWORK
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
   publicly_accessible    = false
   
-  # FREE TIER SETTINGS
   skip_final_snapshot   = true
-  multi_az              = false          # IMPORTANTE: false para Free Tier
-  backup_retention_period = 1            # MÁXIMO 1 día para Free Tier
+  multi_az              = false
+  backup_retention_period = 1
   
-  # Otros settings
   backup_window          = "03:00-04:00"
   maintenance_window     = "sun:04:00-sun:05:00"
   
-  # Deshabilitar features no disponibles en Free Tier
   performance_insights_enabled = false
   monitoring_interval          = 0
   auto_minor_version_upgrade   = true
+  
+  apply_immediately = true
   
   tags = {
     Name = "estudiantes-db"
   }
 }
 
-# EC2 Instance
+# 7. EC2 Instance con Amazon Linux 2023
 resource "aws_instance" "app_server" {
-  ami                    = "ami-0dd9f0e7df0f0a138"
-  instance_type          = "t2.micro"      # Free Tier
+  # Amazon Linux 2023 - Más estable y compatible
+  ami                    = "ami-0c55b159cbfafe1f0"
+  
+  instance_type          = "t2.micro"
   key_name               = "estudiantes-key"
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
   
+  # User data específico para Amazon Linux
   user_data = templatefile("${path.module}/user-data.sh", {
     db_host     = aws_db_instance.estudiantes_db.address
     db_port     = aws_db_instance.estudiantes_db.port
@@ -152,9 +150,8 @@ resource "aws_instance" "app_server" {
     db_password = "6xleyU2b209S"
   })
   
-  # Storage Free Tier
   root_block_device {
-    volume_size = 8               # Free Tier: 30GB máximo total
+    volume_size = 8
     volume_type = "gp2"
   }
   
@@ -165,7 +162,7 @@ resource "aws_instance" "app_server" {
   depends_on = [aws_db_instance.estudiantes_db]
 }
 
-# Elastic IP (gratis si está asociada)
+# 8. Elastic IP
 resource "aws_eip" "app_eip" {
   instance = aws_instance.app_server.id
   

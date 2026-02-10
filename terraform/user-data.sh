@@ -1,109 +1,228 @@
 #!/bin/bash
 
-# Log para debugging
+# Configurar logging
 exec > >(tee /var/log/user-data.log) 2>&1
-echo "=== INICIANDO DESPLIEGUE $(date) ==="
+echo "=== INICIANDO DESPLIEGUE EN AMAZON LINUX $(date) ==="
 
+# --------------------------------------------------
 # 1. ACTUALIZAR SISTEMA
-apt-get update -y
+# --------------------------------------------------
+echo "Actualizando sistema Amazon Linux..."
+sudo yum update -y
 
-# 2. INSTALAR JAVA 21 (ARM64)
-echo "Instalando Java 21 para ARM64..."
-apt-get install -y wget gnupg
-wget -O - https://packages.adoptium.net/artifactory/api/gpg/key/public | apt-key add -
-echo "deb https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/adoptium.list
-apt-get update -y
-apt-get install -y temurin-21-jdk
+# --------------------------------------------------
+# 2. INSTALAR JAVA 21 (Corretto)
+# --------------------------------------------------
+echo "Instalando Java 21 (Amazon Corretto)..."
+sudo yum install -y java-21-amazon-corretto-devel
 
 # Verificar instalación
-java --version
+java -version
+echo "JAVA_HOME: $(dirname $(dirname $(readlink -f $(which java))))"
 
-# 3. INSTALAR MAVEN, GIT Y POSTGRESQL CLIENT
-apt-get install -y maven git postgresql-client
+# --------------------------------------------------
+# 3. INSTALAR MAVEN Y GIT
+# --------------------------------------------------
+echo "Instalando Maven y Git..."
+sudo yum install -y maven git
 
-# 4. CREAR USUARIO PARA APLICACIÓN
-useradd -m -s /bin/bash springapp
+# Verificar
+mvn --version
+git --version
 
-# 5. CLONAR REPOSITORIO
+# --------------------------------------------------
+# 4. INSTALAR POSTGRESQL CLIENT
+# --------------------------------------------------
+echo "Instalando PostgreSQL client..."
+sudo amazon-linux-extras enable postgresql14
+sudo yum install -y postgresql
+
+# --------------------------------------------------
+# 5. CREAR USUARIO PARA LA APLICACIÓN
+# --------------------------------------------------
+echo "Creando usuario springapp..."
+sudo useradd -m -s /bin/bash springapp
+
+# --------------------------------------------------
+# 6. CLONAR REPOSITORIO
+# --------------------------------------------------
+echo "Clonando repositorio del proyecto..."
 cd /home/springapp
-git clone https://github.com/tu-usuario/estudiantes-microservice.git app
-cd app
 
-# 6. ESPERAR A QUE RDS ESTÉ DISPONIBLE (puede tardar 10-15 min)
+# IMPORTANTE: Reemplaza con TU repositorio
+GIT_REPO="https://github.com/CoilBetrox/demo.git"
+sudo -u springapp git clone $GIT_REPO app
+
+cd /home/springapp/app
+
+# --------------------------------------------------
+# 7. ESPERAR A QUE RDS ESTÉ DISPONIBLE
+# --------------------------------------------------
 echo "Esperando a que RDS esté disponible..."
-source <(echo "DB_HOST=${db_host}; DB_PORT=${db_port}")
-
-for i in {1..30}; do
-    if PGPASSWORD=${db_password} psql -h $DB_HOST -p $DB_PORT -U ${db_username} -d postgres -c "\q" 2>/dev/null; then
-        echo "✅ RDS disponible después de $((i*2)) minutos"
-        break
-    fi
-    echo "⏳ Esperando RDS... ($i/30)"
-    sleep 120
+# RDS puede tardar 10-15 minutos en estar completamente disponible
+for i in {1..20}; do
+  if PGPASSWORD=${db_password} psql -h ${db_host} -p ${db_port} -U ${db_username} -d postgres -c "\q" 2>/dev/null; then
+    echo "✅ RDS disponible después de $((i*2)) minutos"
+    break
+  fi
+  echo "⏳ Esperando RDS... ($i/20)"
+  sleep 120  # Esperar 2 minutos entre intentos
 done
 
-# 7. CONFIGURAR VARIABLES DE ENTORNO
-cat > .env << EOF
+# --------------------------------------------------
+# 8. CONFIGURAR VARIABLES DE ENTORNO
+# --------------------------------------------------
+echo "Configurando variables de entorno..."
+cat > /home/springapp/.env << EOF
+# Configuración RDS
 DB_HOST=${db_host}
 DB_PORT=${db_port}
 DB_NAME=${db_name}
 DB_USERNAME=${db_username}
 DB_PASSWORD=${db_password}
+
+# Configuración Spring
 SPRING_PROFILES_ACTIVE=aws
-JAVA_OPTS="-Xms256m -Xmx512m"
+JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC"
 EOF
 
-# 8. COMPILAR APLICACIÓN
-echo "Compilando aplicación..."
-export MAVEN_OPTS="-Xmx512m"
-mvn clean package -DskipTests
+chown springapp:springapp /home/springapp/.env
 
-# 9. CREAR SERVICIO SYSTEMD
+# --------------------------------------------------
+# 9. COMPILAR APLICACIÓN
+# --------------------------------------------------
+echo "Compilando aplicación con Maven..."
+cd /home/springapp/app
+
+# Configurar Maven para usar más memoria
+export MAVEN_OPTS="-Xmx1024m -XX:+UseG1GC"
+
+sudo -u springapp mvn clean package -DskipTests
+
+# Verificar que se creó el JAR
+JAR_FILE=$(find /home/springapp/app/target -name "*.jar" -type f | head -n 1)
+if [ -z "$JAR_FILE" ]; then
+  echo "❌ ERROR: No se encontró archivo JAR"
+  echo "Contenido de target/:"
+  ls -la /home/springapp/app/target/
+  exit 1
+fi
+
+echo "✅ JAR generado: $JAR_FILE"
+
+# --------------------------------------------------
+# 10. CONFIGURAR SERVICIO SYSTEMD
+# --------------------------------------------------
+echo "Configurando servicio systemd..."
 cat > /etc/systemd/system/estudiantes.service << EOF
 [Unit]
 Description=Estudiantes Microservice
 After=network.target
 
 [Service]
+Type=simple
 User=springapp
+Group=springapp
 WorkingDirectory=/home/springapp/app
-EnvironmentFile=/home/springapp/app/.env
+
+# Cargar variables de entorno
+EnvironmentFile=/home/springapp/.env
+
+# Comando de ejecución
 ExecStart=/usr/bin/java \$JAVA_OPTS -jar target/*.jar
+
+# Reinicio automático
 Restart=always
 RestartSec=10
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=estudiantes-app
+
+# Seguridad
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 10. INICIAR SERVICIO
+# --------------------------------------------------
+# 11. CONFIGURAR PERMISOS Y SELINUX
+# --------------------------------------------------
+echo "Configurando permisos..."
 chown -R springapp:springapp /home/springapp
-systemctl daemon-reload
-systemctl enable estudiantes.service
 
-# Esperar un poco más
-sleep 30
-systemctl start estudiantes.service
+# Configurar SELinux para permitir el puerto 8080
+sudo yum install -y policycoreutils-python-utils
+sudo semanage port -a -t http_port_t -p tcp 8080 2>/dev/null || true
 
-# 11. VERIFICAR
+# --------------------------------------------------
+# 12. INICIAR SERVICIO
+# --------------------------------------------------
+echo "Iniciando servicio..."
+sudo systemctl daemon-reload
+sudo systemctl enable estudiantes.service
+
+# Esperar un poco más para RDS
+echo "Esperando 60 segundos antes de iniciar..."
+sleep 60
+
+sudo systemctl start estudiantes.service
+
+# --------------------------------------------------
+# 13. VERIFICAR ESTADO
+# --------------------------------------------------
 sleep 10
-if systemctl is-active --quiet estudiantes.service; then
-    echo "✅ Servicio iniciado correctamente"
-    
-    # Verificar salud
-    echo "Verificando salud de la aplicación..."
-    for i in {1..10}; do
-        if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-            echo "✅ Aplicación respondiendo"
-            break
-        fi
-        echo "⏳ Esperando aplicación... ($i/10)"
-        sleep 5
-    done
+SERVICE_STATUS=$(sudo systemctl is-active estudiantes.service)
+
+if [ "$SERVICE_STATUS" = "active" ]; then
+  echo "✅ Servicio iniciado correctamente"
+  
+  # Verificar salud de la aplicación
+  echo "Verificando salud de la aplicación..."
+  for i in {1..10}; do
+    if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+      echo "✅ Aplicación respondiendo correctamente"
+      break
+    fi
+    echo "⏳ Esperando aplicación... ($i/10)"
+    sleep 10
+  done
 else
-    echo "❌ Error al iniciar servicio"
-    journalctl -u estudiantes.service -n 50
+  echo "❌ Error al iniciar el servicio"
+  sudo journalctl -u estudiantes.service --no-pager -n 50
+  exit 1
 fi
 
+# --------------------------------------------------
+# 14. CONFIGURAR FIREWALL
+# --------------------------------------------------
+echo "Configurando firewall..."
+sudo systemctl start firewalld 2>/dev/null || true
+sudo systemctl enable firewalld 2>/dev/null || true
+sudo firewall-cmd --permanent --add-port=8080/tcp 2>/dev/null || true
+sudo firewall-cmd --reload 2>/dev/null || true
+
+# --------------------------------------------------
+# 15. MOSTRAR INFORMACIÓN
+# --------------------------------------------------
 echo "=== DESPLIEGUE COMPLETADO $(date) ==="
-echo "🌐 URL: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8080"
+echo ""
+echo "✅ Amazon Linux 2023 configurado"
+echo "✅ Java 21 (Corretto) instalado"
+echo "✅ Maven y Git instalados"
+echo "✅ PostgreSQL client instalado"
+echo "✅ Aplicación compilada y desplegada"
+echo ""
+echo "📊 INFORMACIÓN DE ACCESO:"
+echo "IP Pública: $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo 'No disponible')"
+echo "API Base URL: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo 'localhost'):8080/api/v1"
+echo ""
+echo "🔧 COMANDOS ÚTILES:"
+echo "Conectar por SSH: ssh -i estudiantes-key.pem ec2-user@<IP_PUBLICA>"
+echo "Ver logs: sudo journalctl -u estudiantes.service -f"
+echo "Reiniciar: sudo systemctl restart estudiantes.service"
+echo "Estado: sudo systemctl status estudiantes.service"
