@@ -9,105 +9,34 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
-# VPC
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-  
-  tags = {
-    Name = "estudiantes-vpc"
+# VPC por defecto (para evitar crear una nueva)
+data "aws_vpc" "default" {
+  default = true
+}
+
+# Subnets por defecto
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
   }
-}
-
-# Subnets públicas
-resource "aws_subnet" "public_a" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = true
-  
-  tags = {
-    Name = "estudiantes-public-a"
-  }
-}
-
-resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "${var.aws_region}b"
-  map_public_ip_on_launch = true
-  
-  tags = {
-    Name = "estudiantes-public-b"
-  }
-}
-
-# Internet Gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  
-  tags = {
-    Name = "estudiantes-igw"
-  }
-}
-
-# Route Table
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-  
-  tags = {
-    Name = "estudiantes-public-rt"
-  }
-}
-
-# Route Table Associations
-resource "aws_route_table_association" "public_a" {
-  subnet_id      = aws_subnet.public_a.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "public_b" {
-  subnet_id      = aws_subnet.public_b.id
-  route_table_id = aws_route_table.public.id
 }
 
 # Security Group para EC2
 resource "aws_security_group" "ec2_sg" {
   name        = "estudiantes-ec2-sg"
   description = "Security group para instancia EC2"
-  vpc_id      = aws_vpc.main.id
-  
-  ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  vpc_id      = data.aws_vpc.default.id
   
   ingress {
     description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Restringir a tu IP en producción
+    cidr_blocks = ["0.0.0.0/0"]
   }
   
   ingress {
@@ -134,7 +63,7 @@ resource "aws_security_group" "ec2_sg" {
 resource "aws_security_group" "rds_sg" {
   name        = "estudiantes-rds-sg"
   description = "Security group para RDS PostgreSQL"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.default.id
   
   ingress {
     description     = "PostgreSQL desde EC2"
@@ -159,92 +88,85 @@ resource "aws_security_group" "rds_sg" {
 # DB Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "estudiantes-db-subnet-group"
-  subnet_ids = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  subnet_ids = data.aws_subnets.default.ids
   
   tags = {
     Name = "estudiantes-db-subnet-group"
   }
 }
 
-# RDS PostgreSQL
+# RDS PostgreSQL - CONFIGURACIÓN FREE TIER
 resource "aws_db_instance" "estudiantes_db" {
   identifier           = "estudiantes-db"
   engine              = "postgres"
   engine_version      = "15.3"
-  instance_class      = var.rds_instance_class
-  allocated_storage   = 20
-  storage_type        = "gp3"
-  storage_encrypted   = true
+  instance_class      = "db.t3.micro"    # REQUERIDO para Free Tier
   
+  # STORAGE para Free Tier
+  allocated_storage   = 20               # Máximo para Free Tier
+  storage_type        = "gp2"            # gp3 no está en Free Tier
+  storage_encrypted   = false            # Encryption no está en Free Tier
+  
+  # CREDENCIALES
   db_name             = "estudiantesdb"
-  username            = var.db_username
-  password            = var.db_password
+  username            = "estudiantesadmin"
+  password            = "6xleyU2b209S"
   
+  # NETWORK
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
-  
   publicly_accessible    = false
-  skip_final_snapshot   = true
-  multi_az              = false # Cambiar a true para producción
   
-  backup_retention_period = 7
+  # FREE TIER SETTINGS
+  skip_final_snapshot   = true
+  multi_az              = false          # IMPORTANTE: false para Free Tier
+  backup_retention_period = 1            # MÁXIMO 1 día para Free Tier
+  
+  # Otros settings
   backup_window          = "03:00-04:00"
   maintenance_window     = "sun:04:00-sun:05:00"
+  
+  # Deshabilitar features no disponibles en Free Tier
+  performance_insights_enabled = false
+  monitoring_interval          = 0
+  auto_minor_version_upgrade   = true
   
   tags = {
     Name = "estudiantes-db"
   }
 }
 
-# Data source para AMI de Ubuntu
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-  
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-  
-  owners = ["099720109477"] # Canonical
-}
-
 # EC2 Instance
 resource "aws_instance" "app_server" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.ec2_instance_type
-  key_name               = var.key_pair_name
+  ami                    = "ami-0030e4319cbf4dbf2"
+  instance_type          = "t2.micro"      # Free Tier
+  key_name               = "estudiantes-key"
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-  subnet_id              = aws_subnet.public_a.id
+  subnet_id              = data.aws_subnets.default.ids[0]
   
   user_data = templatefile("${path.module}/user-data.sh", {
     db_host     = aws_db_instance.estudiantes_db.address
     db_port     = aws_db_instance.estudiantes_db.port
     db_name     = "estudiantesdb"
-    db_username = var.db_username
-    db_password = var.db_password
+    db_username = "estudiantesadmin"
+    db_password = "6xleyU2b209S"
   })
   
+  # Storage Free Tier
   root_block_device {
-    volume_size = 20
-    volume_type = "gp3"
+    volume_size = 8               # Free Tier: 30GB máximo total
+    volume_type = "gp2"
   }
   
   tags = {
     Name = "estudiantes-app-server"
   }
   
-  # IMPORTANTE: Dependencia para que RDS esté listo antes de EC2
   depends_on = [aws_db_instance.estudiantes_db]
 }
 
-# Elastic IP para EC2 - CORREGIDO: eliminar 'domain'
+# Elastic IP (gratis si está asociada)
 resource "aws_eip" "app_eip" {
-  # CORRECCIÓN: Eliminar 'domain = "vpc"' - ya no es necesario
   instance = aws_instance.app_server.id
   
   tags = {
