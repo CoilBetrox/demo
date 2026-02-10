@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.0"
+      version = "~> 5.0"
     }
   }
 }
@@ -156,7 +156,7 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
-# DB Subnet Group (DEBE crearse ANTES del RDS)
+# DB Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "estudiantes-db-subnet-group"
   subnet_ids = [aws_subnet.public_a.id, aws_subnet.public_b.id]
@@ -224,7 +224,7 @@ resource "aws_instance" "app_server" {
   user_data = templatefile("${path.module}/user-data.sh", {
     db_host     = aws_db_instance.estudiantes_db.address
     db_port     = aws_db_instance.estudiantes_db.port
-    db_name     = aws_db_instance.estudiantes_db.name
+    db_name     = "estudiantesdb"
     db_username = var.db_username
     db_password = var.db_password
   })
@@ -238,15 +238,38 @@ resource "aws_instance" "app_server" {
     Name = "estudiantes-app-server"
   }
   
+  # IMPORTANTE: Dependencia para que RDS esté listo antes de EC2
   depends_on = [aws_db_instance.estudiantes_db]
 }
 
-# Elastic IP para EC2
+# Elastic IP para EC2 - CORREGIDO: eliminar 'domain'
 resource "aws_eip" "app_eip" {
-  domain = "vpc"
+  # CORRECCIÓN: Eliminar 'domain = "vpc"' - ya no es necesario
   instance = aws_instance.app_server.id
   
   tags = {
     Name = "estudiantes-app-eip"
   }
+}
+
+# Outputs
+output "ec2_public_ip" {
+  description = "IP pública de la instancia EC2"
+  value       = aws_eip.app_eip.public_ip
+}
+
+output "rds_endpoint" {
+  description = "Endpoint de la base de datos RDS"
+  value       = aws_db_instance.estudiantes_db.endpoint
+  sensitive   = true
+}
+
+output "application_url" {
+  description = "URL de la aplicación"
+  value       = "http://${aws_eip.app_eip.public_ip}:8080"
+}
+
+output "api_base_url" {
+  description = "URL base de las APIs"
+  value       = "http://${aws_eip.app_eip.public_ip}:8080/api/v1"
 }
