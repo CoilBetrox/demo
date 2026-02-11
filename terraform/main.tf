@@ -167,7 +167,7 @@ resource "aws_instance" "app_server" {
   
   # User data específico para Amazon Linux
   user_data = templatefile("${path.module}/user-data.sh", {
-    db_host     = aws_db_instance.estudiantes_db.endpoint
+    db_host     = aws_db_instance.estudiantes_db.address
     db_port     = aws_db_instance.estudiantes_db.port
     db_name     = "estudiantesdb"
     db_username = var.db_username

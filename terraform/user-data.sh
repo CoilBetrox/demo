@@ -11,10 +11,10 @@ echo "Actualizando sistema Amazon Linux..."
 sudo yum update -y
 
 # --------------------------------------------------
-# 2. INSTALAR JAVA 21 (Corretto)
+# 2. INSTALAR JAVA 17 (Corretto)
 # --------------------------------------------------
-echo "Instalando Java 21 (Amazon Corretto)..."
-sudo yum install -y java-21-amazon-corretto-devel
+echo "Instalando Java 17 (Amazon Corretto)..."
+sudo yum install -y java-17-amazon-corretto-devel
 
 # Verificar instalación
 java -version
@@ -212,7 +212,7 @@ sudo firewall-cmd --reload 2>/dev/null || true
 echo "=== DESPLIEGUE COMPLETADO $(date) ==="
 echo ""
 echo "✅ Amazon Linux 2023 configurado"
-echo "✅ Java 21 (Corretto) instalado"
+echo "✅ Java 17 (Corretto) instalado"
 echo "✅ Maven y Git instalados"
 echo "✅ PostgreSQL client instalado"
 echo "✅ Aplicación compilada y desplegada"
