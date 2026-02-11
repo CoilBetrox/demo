@@ -23,6 +23,10 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
+  filter {
+    name   = "availability-zone"
+    values = ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+  }
 }
 
 # 3. Security Group para EC2
@@ -132,11 +136,31 @@ resource "aws_db_instance" "estudiantes_db" {
 }
 
 # 7. EC2 Instance con Amazon Linux 2023
+data "aws_ami" "amazon_linux_2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023*-x86_64"] 
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
 resource "aws_instance" "app_server" {
   # Amazon Linux 2023 - Más estable y compatible
-  ami                    = "ami-0c55b159cbfafe1f0"
+  ami                    = data.aws_ami.amazon_linux_2023.id
   
-  instance_type          = var.ec2_instance_type
+  instance_type          = "t3.micro"
   key_name               = var.key_pair_name
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
