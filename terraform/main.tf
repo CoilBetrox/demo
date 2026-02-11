@@ -165,7 +165,7 @@ resource "aws_instance" "app_server" {
 # 8. Elastic IP
 resource "aws_eip" "app_eip" {
   instance = aws_instance.app_server.id
-  vpc      = true
+  domain   = "vpc"
 
   tags = {
     Name = "estudiantes-app-eip"
