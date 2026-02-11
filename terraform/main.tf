@@ -9,7 +9,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
 }
 
 # 1. VPC por defecto
@@ -100,14 +100,14 @@ resource "aws_db_instance" "estudiantes_db" {
   identifier           = "estudiantes-db"
   engine              = "postgres"
   engine_version      = "16.6"
-  instance_class      = "db.t3.micro"
+  instance_class      = var.rds_instance_class
   allocated_storage   = 20
   storage_type        = "gp2"
   storage_encrypted   = false
   
   db_name             = "estudiantesdb"
-  username            = "estudiantesadmin"
-  password            = "6xleyU2b209S"
+  username            = var.db_username
+  password            = var.db_password
   
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -136,18 +136,18 @@ resource "aws_instance" "app_server" {
   # Amazon Linux 2023 - Más estable y compatible
   ami                    = "ami-0c55b159cbfafe1f0"
   
-  instance_type          = "t2.micro"
-  key_name               = "estudiantes-key"
+  instance_type          = var.ec2_instance_type
+  key_name               = var.key_pair_name
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
   
   # User data específico para Amazon Linux
   user_data = templatefile("${path.module}/user-data.sh", {
-    db_host     = aws_db_instance.estudiantes_db.address
+    db_host     = aws_db_instance.estudiantes_db.endpoint
     db_port     = aws_db_instance.estudiantes_db.port
     db_name     = "estudiantesdb"
-    db_username = "estudiantesadmin"
-    db_password = "6xleyU2b209S"
+    db_username = var.db_username
+    db_password = var.db_password
   })
   
   root_block_device {
@@ -165,7 +165,8 @@ resource "aws_instance" "app_server" {
 # 8. Elastic IP
 resource "aws_eip" "app_eip" {
   instance = aws_instance.app_server.id
-  
+  vpc      = true
+
   tags = {
     Name = "estudiantes-app-eip"
   }

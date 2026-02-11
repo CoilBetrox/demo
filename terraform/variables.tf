@@ -13,7 +13,7 @@ variable "ec2_instance_type" {
 variable "rds_instance_class" {
   description = "Clase de instancia RDS"
   type        = string
-  default     = "db.t3.micro"
+  default     = "db.t2.micro"
 }
 
 variable "key_pair_name" {
