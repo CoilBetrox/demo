@@ -60,13 +60,13 @@ cd /home/springapp/app
 # --------------------------------------------------
 echo "Esperando a que RDS esté disponible..."
 # RDS puede tardar 10-15 minutos en estar completamente disponible
-for i in {1..20}; do
+for i in {1..5}; do
   if PGPASSWORD=${db_password} psql -h ${db_host} -p ${db_port} -U ${db_username} -d postgres -c "\q" 2>/dev/null; then
     echo "✅ RDS disponible después de $((i*2)) minutos"
     break
   fi
   echo "⏳ Esperando RDS... ($i/20)"
-  sleep 120  # Esperar 2 minutos entre intentos
+  sleep 60  # Esperar 1 minuto entre intentos (máximo ~5 minutos)
 done
 
 # --------------------------------------------------
@@ -110,6 +110,10 @@ fi
 
 echo "✅ JAR generado: $JAR_FILE"
 
+# Crear un enlace estable al JAR para que systemd no dependa de globs
+ln -sf "$JAR_FILE" /home/springapp/app/app.jar
+chown springapp:springapp /home/springapp/app/app.jar
+
 # --------------------------------------------------
 # 10. CONFIGURAR SERVICIO SYSTEMD
 # --------------------------------------------------
@@ -129,7 +133,7 @@ WorkingDirectory=/home/springapp/app
 EnvironmentFile=/home/springapp/.env
 
 # Comando de ejecución
-ExecStart=/usr/bin/java \$JAVA_OPTS -jar target/*.jar
+ExecStart=/usr/bin/java \$JAVA_OPTS -jar /home/springapp/app/app.jar
 
 # Reinicio automático
 Restart=always
