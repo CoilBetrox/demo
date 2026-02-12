@@ -4,25 +4,25 @@ Este archivo muestra, de forma concisa, los componentes que define `main.tf` y c
 
 Arquitectura principal:
 
-  +-----------------+                        +------------------+
-  |   Internet /    |                        |   RDS PostgreSQL  |
-  |  Usuarios/API   | <----(HTTP 8080)-----  |  (estudiantes-db) |
-  |  (clientes)     |                        |  (Puerto 5432)    |
-  +--------+--------+                        +---------+--------+
-           |                                           ^
-           | (Elastic IP -> EC2 : HTTP 8080)           |
-           v                                           |
-  +-----------------+    (SG: permite 8080/22)   +-----+-----------+
-  |   Elastic IP    | -------------------------> |   EC2 Instance  |
-  |   (Association) |                            | (app_server)    |
-  +-----------------+                            +-----------------+
-                                                         |
-                                                         | (SG: permite 5432 hacia RDS)
-                                                         v
-                                                   +-------------+
-                                                   |  RDS Subnet  |
-                                                   |   y DB      |
-                                                   +-------------+
++-----------------+                      +--------------------+
+|    Internet /   |                      |   RDS PostgreSQL   |
+|   Usuarios/API  | <----(HTTP 8080)-----|   (estudiantes-db) |
+|    (clientes)   |                      |    (Puerto 5432)   |
++--------+--------+                      +---------^----------+
+         |                                         |
+         | (Elastic IP -> EC2 : HTTP 8080)         |
+         v                                         |
++-----------------+   (SG: permite 8080/22)  +-----+--------------+
+|    Elastic IP   |-------------------------->|    EC2 Instance   |
+|  (Association)  |                          |    (app_server)    |
++-----------------+                          +----------+---------+
+                                                        |
+                                                        | (SG: permite 5432 hacia RDS)
+                                                        v
+                                             +--------------------+
+                                             |     RDS Subnet     |
+                                             |        y DB        |
+                                             +--------------------+
 
 Componentes clave (según `main.tf`):
 
