@@ -84,6 +84,8 @@ DB_PASSWORD=${db_password}
 # Configuración Spring
 SPRING_PROFILES_ACTIVE=aws
 JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC"
+# Forzar Hibernate DDL auto en la instancia (permitir crear tablas si faltan)
+SPRING_JPA_HIBERNATE_DDL_AUTO=update
 EOF
 
 chown springapp:springapp /home/springapp/.env
