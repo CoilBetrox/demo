@@ -170,9 +170,16 @@ echo "Iniciando servicio..."
 sudo systemctl daemon-reload
 sudo systemctl enable estudiantes.service
 
-# Esperar un poco más para RDS
-echo "Esperando 60 segundos antes de iniciar..."
-sleep 60
+# Esperar un poco más para confirmar que RDS/DB esté accesible antes de iniciar el servicio
+echo "Verificando accesibilidad de la base de datos antes de iniciar el servicio..."
+for j in {1..10}; do
+  if PGPASSWORD=${db_password} psql -h ${db_host} -p ${db_port} -U ${db_username} -d ${db_name} -c "\q" 2>/dev/null; then
+    echo "✅ DB accesible después de $j intentos"
+    break
+  fi
+  echo "⏳ Esperando DB... ($j/10)"
+  sleep 10
+done
 
 sudo systemctl start estudiantes.service
 
