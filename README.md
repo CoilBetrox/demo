@@ -3,7 +3,7 @@
 Este archivo muestra, de forma concisa, los componentes que define `main.tf` y cómo se comunican entre sí.
 
 Arquitectura principal:
-
+'''
 +-----------------+                      +--------------------+
 |    Internet /   |                      |   RDS PostgreSQL   |
 |   Usuarios/API  | <----(HTTP 8080)-----|   (estudiantes-db) |
@@ -23,7 +23,7 @@ Arquitectura principal:
                                              |     RDS Subnet     |
                                              |        y DB        |
                                              +--------------------+
-
+'''
 Componentes clave (según `main.tf`):
 
 - **VPC por defecto**: se usan subnets y VPC existentes en la cuenta.
